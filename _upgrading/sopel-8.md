@@ -68,6 +68,13 @@ Python concept) and a "plugin" (which is a special kind of "module" that can
 extend Sopel with new functionality), Sopel 8 no longer loads plugins from the
 `<homedir>/modules` directory by default.
 
+#### Encrypted IRC by default
+
+If its config file doesn't specify otherwise, Sopel 8 assumes that it _should_
+`use_ssl` and connect on the standard encrypted `port` for IRC, 6697.
+
+Older versions assumed they should _not_ `use_ssl` and use `port` 6667.
+
 #### Taming logging to a channel
 
 Logging is great! Having Sopel output log messages to an IRC channel of your
@@ -124,9 +131,11 @@ updates in the long term. In 8.0, we say farewell to:
 #### `currency` plugin
 
 The `fiat_provider` setting now takes precedence over the `fixer_io_key`.
-
 Previously, setting a `fixer_io_key` would use the `fixer.io` fiat exchange rate
 provider regardless of the `fiat_provider` setting.
+
+The old `fiat_provider` default of `exchangerate.host` is no longer a valid
+choice; it has been replaced by `open.er-api.com`.
 
 #### `reload` plugin
 
@@ -198,12 +207,21 @@ to use the IRC server's advertised casemapping method.
 
 ### Time-handling changes
 
+`trigger.time` is now an "aware" `datetime` object, meaning it has a UTC offset
+associated with it. Comparison or arithmetic operations between "aware" and
+"naive" `datetime` objects are not allowed; code that manipulates `trigger.time`
+values will need to be updated for Sopel 8.
+
 The fallback format string used by `sopel.tools.time.format_time()` if no other
 source provides one changed from outputting the timezone name (`UTC`) to the UTC
 offset (`+0000`).
 
 `format_time()`'s handling of "aware" and "naive" `datetime`s was also improved,
 but those changes should be transparent to both users and plugin developers.
+
+`sopel.tools.time.validate_timezone()` now also raises a `ValueError` even if
+the timezone to be validated is `None`. This was previously a special case that
+_returned_ `None`.
 
 ### Database changes
 
@@ -245,17 +263,48 @@ now they **can't** do that._
 
 ### More consistent `trigger` objects
 
+#### `STATUSMSG` handling
+
+Events sent to a channel can be scoped to users with a particular privilege
+level, or _status_, in that channel. IRC servers advertise the availability of
+this feature using the `STATUSMSG` token in `RPL_ISUPPORT`.
+
+In Sopel 7, `trigger.sender` included the status prefix, and it was difficult
+for plugins to detect and remove it themselves if so desired. Sopel 8.0 removes
+the status prefix from `trigger.sender` and leaves only the channel name, while
+the status prefix (if any) is exposed as `trigger.status_prefix`. This change is
+useful for plugins that use `trigger.sender` to store or retrieve _channel
+values_ in the bot's database, for example.
+
+The `bot` passed to a plugin callable triggered by an IRC event automatically
+includes the status prefix, if present, in the default `destination` parameter
+to methods that send a _message_ to IRC. Plugin callables that simply invoke
+`bot.say()`, `bot.reply()`, etc. in direct response to a `trigger` and without
+overriding the default `destination` will most likely get the expected behavior.
+
+[`sopel-remind`][sopel-remind] is an example of a plugin that this change might
+surprise, since the naïve implementation of such a reminder plugin would simply
+store `(trigger.nick, trigger.sender, parsed_message)` and send
+`bot.reply(parsed_message, trigger.sender, trigger.nick)` after the specified
+amount of time has passed. The `trigger.status_prefix` is lost, and the reminder
+sent to the entire channel, rather than the status-limited subset of users who
+could have seen the original command.
+
+#### Only set the `sender` when it makes sense
+
 For general IRC events like `QUIT`, `RPL_NAMREPLY`, etc. that don't happen "in"
-a channel or other clearly defined _context_, the value of `trigger.sender` that
-plugin callables handling those events would see could be unpredictable at best.
+a channel or other clearly defined _context_, the `trigger.sender` value that
+plugin callables saw in Sopel 7 was unpredictable at best.
 
 Sopel 8.0 now _only_ sets the `trigger.sender` if the triggering event warrants
-it; in all other cases, the `sender` will be `None` and plugin code should use
+it. In all other cases, the `sender` will be `None` and plugin code should use
 the `trigger.args` list to retrieve all information about the event.
 
-Additionally, `trigger.text` will now be _empty_ (`''`) if the event carries no
-`args`. (`trigger.text` previously contained the command name (e.g. `'QUIT'`) in
-these cases, but that was a bug and it has been fixed in Sopel 8.)
+#### To have `text`, you must first have `args`
+
+`trigger.text` will now be _empty_ (`''`) if the event carries no `args`.
+In Sopel 7, `trigger.text` contained the command name (e.g. `'QUIT'`) in these
+cases, but that was a bug. It has been fixed in Sopel 8.
 
 ### IRC privilege requirement changes
 
@@ -295,6 +344,12 @@ The first method is easier if you just want to require a capability. The second
 is easier if your plugin needs to _do something in response to_ the IRC server's
 response to the capability request. See the documentation for more details.
 
+### The bot's hostmask
+
+In Sopel 8, accessing `bot.hostmask` when the bot lacks sufficient data to
+determine its hostmask will return `None`. This replaces the previous behavior,
+which was to raise a `KeyError`.
+
 ### Testing tool changes
 
 * Convenience methods of the mock IRC server available through Sopel's `pytest`
@@ -320,6 +375,13 @@ ahead of the game if you update your plugins now!
 
 Previously deprecated parts of Sopel's API have been removed, including:
 
+* `bot.memory['url_callbacks']` is no longer created or populated by the bot
+  * Tracking this information moved to an internal property, in preparation for
+    the removal of `bot.register_url_callback()`, `bot.search_url_callbacks()`,
+    and `bot.unregister_url_callback()` in Sopel 9.0
+  * As a reminder, plugins **should** no longer use the above-mentioned methods;
+    the `bot.rules.check_url_callbacks(bot, url)` method now works very well
+    with the `@sopel.plugin.url()` decorator
 * `bot.privileges` channel information (deprecated since Sopel 6.2; replaced by
   `bot.channels`)
 * `bot.msg()` method (use `bot.say()`)
@@ -350,481 +412,10 @@ Previously deprecated parts of Sopel's API have been removed, including:
 
 ### Deprecated API features
 
-More pieces of Sopel's pre-existing API have been deprecated as we continue to
-reorganize and rework various parts of the overall project:
+More pieces of Sopel's pre-existing API have been deprecated in version 8.0 as
+we continue to reorganize and rework various parts of the overall project:
 
+* `bot.search_url_callbacks()` (use `bot.rules.check_url_callbacks(bot, url)`)
 * `sopel.tools.OutputRedirect`
 * `sopel.tools.stderr()` (we can't stress enough: plugins should use a logger,
   not stdout/stderr output)
-
----- haven't looked past here ----
-
-### Accessing the database
-
-While Sopel's [migration to SQLAlchemy](#database-support) doesn't affect
-*most* of [the `bot.db` API][docs-db], some plugins that make use of the more
-direct methods might need to be rewritten for Sopel 7. Non-exhaustively:
-
-* [`bot.db.execute()`][docs-db-execute] *should* still return an object that
-  behaves like a `Cursor`, but since it's actually a SQLAlchemy wrapper not
-  everything is guaranteed to work exactly the same
-* [`bot.db.get_uri()`][docs-db-get_uri] hasn't functionally changed, but it's
-  important to remember that the returned URI *might* not point to SQLite
-* [`bot.db.connect()`][docs-db-connect] is likewise functionally unchanged,
-  except that it can now return a non-SQLite DBAPI connection object,
-  potentially one with behavior different from the SQLite connections always
-  returned in older versions
-
-We recommend that authors of plugins which use a raw database connection from
-`bot.db.connect()` aim to rewrite their code so it uses the ORM approach and
-[`bot.db.session()`][docs-db-session] instead. In the interim, it never hurts
-to update your plugin's documentation to warn users that non-SQLite databases
-haven't been tested, or make sure the plugin is marked as compatible with Sopel
-<7.0 only until it can be tested and/or updated.
-
-  [docs-db]: /docs/db.html
-  [docs-db-connect]: /docs/db.html#sopel.db.SopelDB.connect
-  [docs-db-execute]: /docs/db.html#sopel.db.SopelDB.execute
-  [docs-db-get_uri]: /docs/db.html#sopel.db.SopelDB.get_uri
-  [docs-db-session]: /docs/db.html#sopel.db.SopelDB.session
-
-### Managing URL callbacks
-
-For quite a while, Sopel plugins wishing to override the `url.py` plugin's
-automatic title-fetching for certain URLs have customarily done something along
-these lines:
-
-```python
-# in the plugin's setup() function:
-    if not bot.memory['url_callbacks']:
-        bot.memory['url_callbacks'] = tools.SopelMemory()
-    bot.memory['url_callbacks'][compiled_regex] = methodname
-```
-
-Similar manual manipulation of the object in memory was needed to unregister
-handlers at plugin unload:
-
-```python
-# in the plugin's shutdown() function:
-    try:
-        del bot.memory['url_callbacks'][compiled_regex]
-    except KeyError:
-        pass
-```
-
-Going forward, a new set of API methods should be used instead:
-
-  - `bot.register_url_callback(pattern, callback)`, to invoke `callback` when a
-    URL in a message matches the `pattern`
-  - `bot.unregister_url_callback(pattern, callback)`, to stop invoking the
-    `callback` when a URL in a message matches the `pattern`
-  - `bot.search_url_callbacks(url)`, to find callbacks matching the given `url`
-
-`bot.memory['url_callbacks']` will remain unchanged for the life of Sopel 7.x.
-We plan to make this data structure private in Sopel 8.0, so we can improve it
-(e.g. allowing multiple callbacks for the same pattern). The new API methods
-are already future-proofed against the changes we plan to make; that's why the
-callback function is required both when registering *and* unregistering.
-
-### Adding multiple command examples
-
-Decorating a plugin callable like this was a great way to add documentation to
-that command through Sopel's `help` plugin:
-
-```python
-from sopel import module
-
-@module.example('.foo barbaz')
-def foo_cmd(bot, trigger):
-    bot.action('foos %s' % trigger.group(3))
-```
-
-However, *only one example* could ever appear in the `help` output. This was
-[confusing](https://github.com/sopel-irc/sopel/issues/1200) to plugin authors.
-
-Furthermore, if more than one example was defined:
-
-```python
-from sopel import module
-
-@module.example('.foo barbaz')
-@module.example('.foo spam eggs sausage bacon')
-def foo_cmd(bot, trigger):
-    bot.action('foos %s' % ', '.join(trigger.group(2).split())
-```
-
-It was not necessarily intuitive which example would be displayed if a user
-did `.help foo`. The code says it would use `example[0]`. That's the first one
-in the list, which makes sense. But take a guess which of the two above would
-be used—`.foo barbaz` or `.foo spam eggs sausage bacon`?
-
-Ready to see if you were right?
-
-Sopel would use `.foo spam eggs sausage bacon` as the example, because due to
-how decorators work, it ends up first in the internal list despite appearing
-last in the source code. Not very intuitive for beginning plugin writers…
-
-So, in Sopel 7, there is a `user_help` argument to `@module.example`. If at
-least one of a callable's examples has this attribute set to `True`, all such
-examples will be used when outputting help for that command:
-
-```python
-from sopel import module
-
-@module.example('.foo barbaz', 'foos barbaz', user_help=True)
-@module.example('.foo', "I can't foo that!")
-@module.example('.foo egg sausage bacon', 'foos egg, sausage, bacon', user_help=True)
-def foo_cmd(bot, trigger):
-    if not trigger.group(2):
-        return bot.say("I can't foo that!")
-    bot.action('foos %s' % ', '.join(trigger.group(2).split())
-```
-
-Here, Sopel's help output will show both `.foo barbaz` and `.foo egg sausage
-bacon` as examples. Plain `.foo` does not have `user_help=True` (it's purely
-there for testing), and so it will not be shown.
-
-Of course, backwards compatibility is important! That's why we used this
-approach. Callables without any `user_help=True` examples will behave just
-like they would have in Sopel 6 and older: The "first" example (the one
-closest to the function's `def` line, last in the source line order) will
-appear in `help`'s output.
-
-Making `user_help=True` the default would make *a ton* of sense, definitely!
-But if we did that, many (many) existing Sopel (and Willie) plugins would
-potentially output "bad" help information—so we elected to keep the old
-behavior by default in an effort to minimize any "breakage".
-
-### Logging API rework
-
-Plugins should use the new `sopel.tools.get_logger()` function to get a
-logging object, starting with Sopel 7.0. It takes the same argument (the
-plugin's name) as its predecessor, `sopel.logger.get_logger()`.
-
-`sopel.logger.get_logger()` will have an extended deprecation cycle, to allow
-ample time for the ecosystem to adapt without spamming too many log files at
-first. The old function's behavior has been tweaked to work reasonably nicely
-with the harmonized logging system implemented for Sopel 7.
-
-Calls to `sopel.logger.get_logger()` will begin emitting deprecation warnings
-in Sopel 8.0, to alert stragglers (or users of possibly-abandoned code). We
-will remove this function from the API in Sopel 9.0.
-
-### Removal of deprecated attributes
-
-A number of ancient attributes that were considered deprecated many releases
-ago _finally_ have been removed, mostly from the `Bot` object. Among them:
-
-  - `bot.ops`
-  - `bot.halfplus`
-  - `bot.voices`
-  - `bot.stats`
-
-This list is not comprehensive, but honestly: If your code breaks because a
-removed attribute no longer exists, it's actually been broken for a *long* time
-on account of the attributes themselves always being empty. They were just
-placeholders to avoid anything raising `AttributeError`. (Sopel's current
-maintenance team wouldn't have done it that way, but we can't undo the past.)
-
-### Improvements to testing tools
-
-An absolute *ton* of work went into refactoring how the bot works internally
-for Sopel 7, and one side benefit (nay, a goal) of the changes was to make
-things more directly testable, without needing to create special "mock"
-objects. If you have used `sopel.test_tools` to write unit tests for your
-plugin code, you're probably familiar with at least one of `MockConfig`,
-`MockSopel`, and `MockSopelWrapper`—three classes Sopel itself used in its own
-tests until this release.
-
-With the rewrites for Sopel 7, though, Sopel's tests don't need these mock
-classes any more. We test directly on the "real" objects, only switching out
-the IRC connection for a fake one that just logs its input and output instead
-of actually opening a socket to a remote server. This means that our `Mock*`
-classes can be marked as **deprecated**; we will remove them in Sopel 8.
-
-Fortunately, there's also another bit of good news: Sopel now comes with a
-`pytest` plugin and a whole set of fixtures, factories, and mocks in
-`sopel.tests`. We encourage you to [explore them][docs-test-tools] and update
-your plugins' tests (or write them, if you haven't already, you naughty
-developer!) to use the new goodies. Trust us—they're *much* nicer to write
-tests with than the old tools were!
-
-  [docs-test-tools]: https://sopel.chat/docs/tests.html
-
-
-## Sopel 7 plugin changes
-
-### Reminder DB migration
-
-Sopel 7 refers to specific instances by config file name whenever possible,
-instead of using other pieces of config data such as `nick` or `host` that are
-more likely to change. The `remind` and `tell` plugins have been updated with
-this in mind, and will attempt to automatically convert their respective data
-files to the new name format if the old filename exists.
-
-You probably will not need to do anything. However, if the automatic migration
-does fail, it will output (and log) information about what it was trying to
-do, and link to this section of the Sopel 7 upgrade guide for convenience.
-
-**If a migration failure brought you here:** Above the link you should find
-the old and new filenames the plugin was attempting to use.
-
-**Important:** Ensure the associated instance of Sopel is NOT running
-before doing anything. Tampering with the reminder files while Sopel is
-running can result in data loss.
-
-In most error cases, migration will fail because the new filename already
-exists. The simplest fix is to move or rename the conflicting file, and run
-Sopel again so the migration can complete.
-
-If both the old and new files are non-empty, you might want to peek inside
-them with a text editor to see what's there before deciding which to keep. The
-current format for both plugins' data files is essentially <abbr
-title="Tab-Separated Values">TSV</abbr>, and they can be merged by hand
-(again, _with Sopel stopped_) if both the old _and_ new files somehow contain
-meaningful, unique entries.
-
-And of course, if you need more in-depth assistance with fixing a failed
-migration, [our IRC channel][sopel-channel] always welcomes questions.
-
-### Core plugin removals
-
-### `spellcheck`
-
-As of February 2018, the Python bindings for `enchant` [became
-unmaintained][pyenchant-unmaintained]. This made installing the `spellcheck`
-plugin's dependencies increasingly difficult, and often
-[caused][windows-enchant] [problems][linux-enchant] with new installations.
-
-Because of this, the `spellcheck` plugin was rewritten to use `aspell` instead,
-and extracted into a [standalone PyPI package][pypi-spellcheck] to eliminate
-those non-Python dependencies for installing Sopel itself.
-
-The rewrite also added new commands to manage a custom word list:
-
-  - `.scadd` - stages a word for adding to the bot's word list
-  - `.scpending` - lists words pending addition to the bot's custom list
-  - `.scdel` - removes a word from the pending list
-  - `.scsave` - commits pending words to the bot's word list
-  - `.scclear` - clears the list of pending words without saving
-
-Unfortunately, the `aspell` API only supports *adding* words to the custom
-dictionary. To *remove* a custom word, a user must manually edit the dictionary
-file, so we decided to go with a two-step process. Hopefully it will help Sopel
-admins around the world avoid adding typos to their bots' custom dictionaries!
-
-  [pyenchant-unmaintained]: https://github.com/rfk/pyenchant/commit/4df35b7
-  [windows-enchant]: https://github.com/sopel-irc/sopel/issues/1142
-  [linux-enchant]: https://github.com/sopel-irc/sopel/pull/1454
-  [pypi-spellcheck]: https://pypi.org/project/sopel-spellcheck/
-
-### `ipython`
-
-We've made the `ipython` plugin into [its own PyPI package][pypi-ipython],
-further reducing the packages required to install Sopel itself. Mostly, though,
-this decision was based on the limited utility of this plugin for
-non-developers. Its main use case is poking around in Sopel's state while
-debugging a new plugin or plugin feature, with Sopel running in an interactive
-shell. It's unusable when Sopel is run as a service/daemon (which is how most
-deployments *should* run Sopel), and we decided it doesn't make sense to
-continue bundling this plugin and its requirements with the core bot.
-
-  [pypi-ipython]: https://pypi.org/project/sopel-ipython/
-
-
-## Planned user-facing changes
-
-A "user" here is someone who *runs* (or is responsible for *maintaining*) one
-or more Sopel bots. If you're reading this, that *probably* describes you.
-(Unless you're some kind of weirdo who only writes plugins for other people to
-use, and never tests them… Seriously, who does that?)
-
-You might need to edit your bot's configuration in the future due to these
-plans. Sopel might take care of them on its own, too. But in case human
-intervention is required, here are the details.
-
-### Config format change for list values
-
-Since the new config system was introduced, lists of values have been
-represented in the config file as strings separated by commas (`,`). Sopel 7
-adds support for storing these lists as multi-line strings instead, with
-values separated by newlines.
-
-Here's what that means in practice:
-
-```conf
-# Current format
-[core]
-enable = admin,reddit,wikipedia,wiktionary
-
-# New format
-[core]
-enable =
-    admin
-    reddit
-    wikipedia
-    wiktionary
-```
-
-Note that Sopel 7 will upgrade the stored format of any comma-separated list
-value if the config is saved (with `.save`) after editing the value via IRC
-(with `.set section.option_name list,of,values`).
-
-**Important: The new format requires any value beginning with `#` to be
-quoted.** Automatic conversion will handle this, but be aware of it if you're
-tweaking your config file(s) by hand during the upgrade process. You will need
-to be careful with the `core.channels` list, in particular. Most updated
-`core.channels` values should look like this:
-
-```conf
-[core]
-channels =
-    "#spam"
-    "#eggs"
-    "#bacon"
-    "#snakes"
-```
-
-Unquoted values beginning with `#` *might* work properly on certain Python
-versions *if indented*, but you should quote them anyway to be safe.
-
-In Sopel 7, this is just a convenience change. It means that lists stored in
-the new format can support commas within the values, without any annoying
-escape-character shenanigans (which was our first plan). Old-style values (all
-on a single line) will continue to be split on commas when reading config
-files, as before, and will be updated to the new format as described above.
-
-**Eventually, in Sopel 9, we plan to remove this fallback behavior.** Sopel 8
-may emit a warning to the console and/or log file at startup if old-style list
-values are present in the loaded config file, but we encourage updating your
-config files *long* before then.
-
-### Modules vs. plugins
-
-Sopel has long used the term "module" in reference to Python files (or folders
-thereof) that add functionality to the bot. This is reflected even in the
-layout of Sopel's data folder: `~/.sopel/modules` is so named because that's
-where the modules go! We'd like to change that, though.
-
-The simplified explanation is that Python already has "modules". Add-ons for
-Sopel are also Python modules, but not all Python modules are Sopel add-ons.
-This overlap gets confusing for developers sometimes.
-
-Many similar projects call this kind of add-on a "plugin". We've already
-started using the term "plugin" in our documentation, in place of "module",
-when referring to these add-ons.
-
-As a user, you'll notice only small changes related to this shift. The
-restructured CLI [described above](#cli-restructuring), for example, uses
-`sopel configure --plugins` to replace `sopel --configure-modules`. Our
-documentation will continue to move toward consistently referring to "plugins"
-and "modules" as distinct concepts. We'll also change the default search
-location for plugins from `~/.sopel/modules` to `~/.sopel/plugins` in a future
-release (probably Sopel 8), but it will be easy to re-add the old folder if
-you like via the `core.extra` setting.
-
-
-## Planned future API changes
-
-This section is all about stuff that won't cause problems *now*, but *will*
-break in a future release if not updated. Most of these are planned removals of,
-or changes to, API features deprecated long ago.
-
-We suggest reviewing these upcoming changes, and updating your own plugins if
-they still use anything listed here, as soon as possible. Updating plugins
-published to PyPI should take priority, especially plugins written for Sopel 6
-that are not future-proofed by capping Sopel's version in their requirements.
-
-If you use third-party plugins that have not been updated, we encourage you to
-inform the author(s) politely that they need to update. Or better yet, submit a
-pull request or patch yourself!
-
-### Removal of `bot.privileges`
-
-Sopel 7.x will be the last release series to support the `bot.privileges` data
-structure (deprecated in [Sopel 6.2.0][v6.2.0], released January 16, 2016).
-
-Beginning in Sopel 8, `bot.privileges` will be removed and plugins trying to
-access it will throw an exception. `bot.channels` will be the _only_ place to
-get privilege data going forward.
-
-### Removal of `bot.msg()`
-
-[Back in 6.0][v6.0.0], Sopel's API standardized around a consistent argument
-order for messaging functions: `message` first, then an optional `recipient` (or
-`destination`, if you like). Part of the old API, `bot.msg()`, has stuck around
-since then because it was, [quote][msg-hard-comment], "way too much of a pain to
-remove". In fact, it turned out to be quite easy to remove.
-
-None of Sopel's own code uses this old method any more, and we will remove it
-entirely in 8.0. Uses of `bot.msg()` in 7.0 will emit a deprecation warning, so
-any remaining third-party code that still uses it can be found and patched.
-
-  [msg-hard-comment]: https://git.io/sopel-msg-pain
-
-### Rename/cleanup of `sopel.web`
-
-While the whole `sopel.web` module was marked as deprecated in [Sopel
-6.2.0][v6.2.0], because it largely serves as a wrapper around the `requests`
-library, parts of it seem to be useful enough that they should be kept around.
-
-For Sopel 8, we intend to move `sopel.web` to `sopel.tools.web`. The new
-location is available in Sopel 7 to provide a transitional period. Similar to
-how importing from both `willie` and `sopel` worked in the run-up to Sopel 6.0,
-it is possible to do any of the following during Sopel 7's life cycle:
-
-  - `import sopel.web`
-  - `from sopel import web`
-  - `import sopel.tools.web`
-  - `from sopel.tools import web`
-
-In Sopel 8, we will remove the pointers from `sopel.web` to the new location.
-These explicitly deprecated functions will also be removed at the same time:
-
-  - `sopel.web.get()` — use `requests.get()` directly instead
-  - `sopel.web.head()` — use `requests.head()` directly instead
-  - `sopel.web.post()` — use `requests.post()` directly instead
-  - `sopel.web.get_urllib_object()` — really, just use [`requests`][requests]
-
-We will also tweak the module constants:
-
-  - `sopel.web.default_headers`: renamed to `sopel.tools.web.DEFAULT_HEADERS`
-  - `sopel.web.ca_certs`: removed in `sopel.tools.web` — it no longer has any
-    function (and was probably not useful for Sopel plugins to import, anyway)
-
-New additions to Sopel's web tools made during the life of 7.x will be
-available only in `sopel.tools.web`. Functions and constants that we plan to
-remove in Sopel 8 (as listed above) will be available only from the old
-`sopel.web` module.
-
-  [requests]: https://pypi.org/project/requests/
-  [v6.0.0]: {% link _changelogs/6.0.0.md %}
-  [v6.2.0]: {% link _changelogs/6.2.0.md %}
-
-### Finalizing the "plugin" transition
-
-As described [above](#modules-vs-plugins), we're trying to get away from the
-ambiguity of calling Sopel add-ons "modules", because that term is already
-used by Python itself. All Sopel add-ons are Python modules, but not all
-Python modules are Sopel add-ons. Many people in the Sopel community have
-tripped over this blurred line, and we have plans to change more than just
-documentation eventually.
-
-Already, in Sopel 7, the internal mechanisms for handling add-on code are all
-about "plugins" now. The module responsible is named `sopel.plugins`, and its
-submodules & members all agree on this nomenclature. But you, a _plugin_
-developer, must—confusingly—still import the "_module_" module from `sopel` to
-use any of the decorators that make Sopel plugins work. Annoying, isn't it?
-
-Rest assured that we're not done yet. Future releases of Sopel will support
-(even encourage) importing `sopel.plugin` instead, which will be the new home
-of all plugin-related decorators & constants. `sopel.module` won't go away any
-time soon, though. It predates even the name "Willie", after all—we can't just
-yank it out without a _long_ deprecation cycle. We might just leave it as a
-permanent alias to `sopel.plugin`. (The plan is still [up for
-discussion][#1738], if you're interested.)
-
-But, once available, you should _definitely_ use `sopel.plugin` in your new
-code. It's the future!
-
-  [#1738]: https://github.com/sopel-irc/sopel/issues/1738
