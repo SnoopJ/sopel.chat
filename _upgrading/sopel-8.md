@@ -313,7 +313,6 @@ In Sopel 8.0, the `@sopel.plugin.require_privilege()` decorator now implies
 triggered outside of a channel. Previously, `require_privilege` restrictions
 were simply ignored, and the callable would run anyway.
 
-== @TODO: ONLY IF #2580 is merged ==
 The `@sopel.plugin.require_bot_privilege()` decorator also now implies
 `@sopel.plugin.require_chanmsg()`, with the same associated behavior change.
 
