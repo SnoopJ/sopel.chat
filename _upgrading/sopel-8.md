@@ -6,19 +6,42 @@ covers_to: 8.0
 
 # Sopel 8.0 Migration
 
+<!-- NOTE: reworded and added link to official docs with Gantt chart/table of lifecycle info -->
+
 Version 8.0 brings Sopel into the modern era of Python, finally dropping support
-for Python 2 and all end-of-life Python 3 releases as of December 2023. This let
-us make significant updates under the hood to future-proof things like the IRC
-connection backend and event system.
+for [end-of-life](python-devguide-versions) Python releases as of December 2023,
+including Python 2 and several older versions of Python 3. This allows us to make significant improvements under the
+hood that were held back by these legacy versions, e.g. the IRC connection
+backend and Sopel's event system.
+
+[python-devguide-versions]: https://devguide.python.org/versions/
 
 ## Owner/admin usage changes
 
 ### Updated Python requirements & support policy
 
 Sopel 8.0 requires Python 3.8 or higher. Support for Python 2.7 and 3.3–3.7 has
-been removed. In exchange, known issues sometimes preventing use of Sopel 7 with
+been removed. In exchange, known issues <!-- TODO: this is vague --> sometimes preventing use of Sopel 7 with
 Python 3.11+ have been fixed.
 
+<!--
+TODO: this feels like it might be making stronger promises than we want
+
+I think what we want to say is that we are prioritizing releases that are not
+EOL, and we will adopt a best-effort approach to support for out of date
+versions. It seems important to me to be explicit in reserving the right to
+drop an EOL version because of Sopel maintenance concerns. In particular, the
+language "technically impossible" strikes me as *far* too strong and inviting
+technical debate from only-slightly-hypothetical users who are upset about
+dropping support this way.
+
+In other words, I think we want to avoiding making promises here, but it would
+be nice to reword this to state our general philosophy: we want to track new
+Python versions as quickly as possible, and we want to be flexible about
+supporting legacy versions, UNTIL it becomes a pain in the ass for us to do so. Future versions get priority over old versions?
+
+It is probably also worth mentioning that CPython is now on an 18-month (IIRC? There's a PEP about it) release cycle, which means that we can MUCH more reliably predict new versions and plan ahead for evaluation of pre-releases. If we're going to make forward-looking promises here, saying that we plan to start testing when the first alpha/beta/rc of a new version is out is a good idea. Personally I would advocate for testing alphas, but we could probably get away with betas. Waiting for an RC is probably suboptimal, because if there's a bug in CPython that our CI would unearth, we're screwed after beta is over and will have to skip that release entirely.
+-->
 During the lifecycle of Sopel 8.x, we will add new Python releases to our test
 suite as soon as possible. We will keep testing against end-of-life Python
 versions unless and until it becomes technically impossible to do so. However,
@@ -31,9 +54,11 @@ Sopel 8 continues the command-line interface overhaul we began in version 7,
 mostly in the form of removing support for legacy usage from Sopel's 6.x era.
 
 The bare `sopel` command now offers only basic control. Most of its legacy
-options have been removed:
+options have been removed. For migration purposes, the table below lists removed
+commands and their modern equivalents:
 
-|             Legacy command            |             Modern command             |
+<!-- NOTE: I believe I'm correct in saying that the left-hand have been removed, see 39811b72 -->
+|             Legacy command (removed)  |             Modern command             |
 |:-------------------------------------:|:--------------------------------------:|
 | `sopel --quit` or `sopel -q`          | `sopel stop`                           |
 | `sopel --kill` or `sopel -k`          | `sopel stop --kill` or `sopel stop -k` |
@@ -47,7 +72,7 @@ options have been removed:
 ### Ignore system
 
 In Sopel 8, "hostmask" blocks are now called "host" blocks, which reflects the
-reality of how those values are used by Sopel. Bot admins' muscle memories will
+reality of how those values are used by Sopel <!-- TODO: this could be worded more clearly -->. Bot admins' muscle memories will
 have to learn to type e.g. `.blocks add host` instead of `.blocks add hostmask`.
 
 We intend to add [actual "hostmask" blocking][better-ignore-system] in a future
@@ -63,19 +88,26 @@ editing by bot admins via IRC commands._
 
 #### What's a "module", doc?
 
-Continuing our push to clarify the difference between a "module" (which is a
-Python concept) and a "plugin" (which is a special kind of "module" that can
-extend Sopel with new functionality), Sopel 8 no longer loads plugins from the
-`<homedir>/modules` directory by default.
+<!-- NOTE: I reversed the clauses here, the migration guide reader cares about the change more than the rationale. -->
+Sopel 8 no longer loads plugins from the `<homedir>/modules` directory by default. To migrate, rename
+this directory to `plugins/` or declare it in the `extra` field of the `[core]` configuration section.
+<!-- TODO: link to config -->
+
+This is part of our continuing our push <!-- TODO: issue link? --> to strengthen the distinction between a "module" (which is a
+[Python concept](python-glossary-module)) and a "plugin" (Sopel's terminology for a special kind of "module" that can extend the bot with new functionality).
+
+<!-- TODO: I guessed this URL since I'm editing without network access, need to check it before submitting -->
+[python-glossary-module]: https://docs.python.org/3/glossary.html#term-module
 
 #### Encrypted IRC by default
 
-If its config file doesn't specify otherwise, Sopel 8 assumes that it _should_
-`use_ssl` and connect on the standard encrypted `port` for IRC, 6697.
-
-Older versions assumed they should _not_ `use_ssl` and use `port` 6667.
+Sopel 8 enables SSL and uses port 6697 by default, breaking with the old behavior
+of no SSL and port 6667 by default. Users who want to opt out of SSL should set
+the `use_ssl` and `port` options in their bot's config file in the `[core]` section.
 
 #### Taming logging to a channel
+
+<!-- TODO: Put the thing the reader cares about _first_ -->
 
 Logging is great! Having Sopel output log messages to an IRC channel of your
 choice can be very convenient, too. However, it was possible to have Sopel give
@@ -87,6 +119,13 @@ setting, and `logging_channel_level` is no longer inherited from the main
 `logging_level` setting. The new default `logging_channel_level` is `WARNING`.
 
 #### Farewell, Phenny/Jenni
+
+<!--
+TODO: 'what' and 'why' are inverted here as well. What about this section is
+actionable for "migration"? Is our advice effectively "stop doing that", i.e.
+port your plugins (we don't have guidance for doing that AFAIK) or remove/rewrite
+them?
+-->
 
 The project that eventually became Sopel diverged from Jenni in 2012. After more
 than a decade of maintaining backward compatibility (in a theoretical sense, at
@@ -106,9 +145,8 @@ necessary, writing) newer plugins with similar functionality.
 
 ### Removed built-in plugins
 
-Sopel's built-in plugins are slowly being migrated out to their own standalone
-packages, which will help the project manage responsibility for maintenance and
-updates in the long term. In 8.0, we say farewell to:
+In Sopel 8.0, the following plugins have been removed from the core and extracted
+to separate packages:
 
 * `help`: now published as [`sopel-help`][sopel-help]
   * Note: Sopel still requires the `sopel-help` package, so it will be installed
@@ -119,12 +157,17 @@ updates in the long term. In 8.0, we say farewell to:
 * `reddit`: now published as [`sopel-reddit`][sopel-reddit]
 * `remind`: now published as [`sopel-remind`][sopel-remind]
 
+Sopel's built-in plugins are slowly being migrated out to their own standalone
+packages <!-- TODO: issue link? -->, which will help the project manage responsibility
+for maintenance and updates in the long term. 
+
   [sopel-help]: https://pypi.org/project/sopel-help/
   [sopel-iplookup]: https://pypi.org/project/sopel-iplookup/
   [sopel-meetbot]: https://pypi.org/project/sopel-meetbot/
   [sopel-py]: https://pypi.org/project/sopel-py/
   [sopel-reddit]: https://pypi.org/project/sopel-reddit/
   [sopel-remind]: https://pypi.org/project/sopel-remind/
+
 
 ### Notable changes to built-in plugins
 
@@ -141,7 +184,7 @@ choice; it has been replaced by `open.er-api.com`.
 
 The `.update` command has been removed from the `reload` plugin. Its functioning
 relied on running Sopel in a way that isn't officially supported, so we chose to
-remove it.
+remove it.  <!-- TODO: should we advise affected users to `.reload`, restart Sopel, or neither? -->
 
 #### `wikipedia` plugin
 
@@ -159,9 +202,21 @@ maximum Sopel versions in their requirements. If all plugins a bot owner wishes
 to install contain this metadata, they can ask `pip` to install Sopel and all of
 its plugins in a single command, and `pip`'s dependency solver will figure out
 which version of Sopel satisfies all of the plugins' needs.
+<!--
+TODO: last sentence needs to be clarified
+
+- Need to clarify that plugins can therefore *change the Sopel version* the
+user has installed. If users care about that, Sopel must always be a part of
+the install command and it should probably be pinned.
+
+- Claim that pip will determine the Sopel version is misleading, pip will find
+whatever best solves _the entire graph_, which *might* include an 'old' version
+of a plugin if other plugins introduce inflexible constraints on Sopel's version.
+
+-->
 
 We do everything we can to keep breaking API changes to *only* major versions,
-so a version range like `sopel>=7.1,<9` is typically safe—at least the earliest
+so a version range like `sopel>=7.1,<9` <!-- TODO: why not `sopel>=8,<9` since this is the 8.0 migration guide? I think we need to clarify here that the user should determine whatever makes sense for their plugin, and they can use our soft promise about breaking API changes to guide that choice. --> is typically safe—at least the earliest
 Sopel version your plugin supports, up to (but excluding) the next unreleased
 major version.
 
@@ -170,58 +225,65 @@ deprecation period, during which Sopel will log warnings whenever the deprecated
 functionality is used by a plugin. Rarely, we might need to remove an API
 feature without going through this process—but that's a last-resort option.
 
+<!-- TODO: Should we mention the "breaking change" label on GitHub? -->
+<!-- NOTE: overall, this section feels like general guidance on plugin authorship, rather than 8.0 migration advice. It definitely does not provide any advice about what API has changed in 8.0 which might annoy a reader that came to this guide for that information. -->
+
 ### Command names are now literal
 
-To prevent conflicts with the default capture groups Sopel defines for commands
+Characters <!-- TODO: which ones? --> with special meaning in regular expressions
+are now escaped in command names.
+
+This prevents conflicts with the default capture groups Sopel defines for commands
 and prepare for future enhancements to plugin/command management, characters
 with special meaning in regular expressions are now escaped in command names.
 
-Documentation for `@sopel.plugin.command()` suggests alternatives based on the
-use case you need to adapt for Sopel 8.
+Documentation for `@sopel.plugin.command()` <!-- TODO: link it --> suggests
+alternatives that can be used to migrate affected commands to Sopel 8.
 
 ### Enums everywhere
 
 _(Insert that classic Buzz Lightyear meme here, if you want.)_
-
-Modernizing Sopel to run only on currently-supported Python versions let us do
-quite a bit of work under the hood, but we were also able to start improving how
-some parts of the API work. Using `Enum`s where it makes sense is part of that.
 
 The following parts of Sopel's API are now expressed as some type of `Enum`:
 
 * `sopel.formatting.colors`
 * `sopel.tools.events`
 
+Modernizing Sopel to run only on currently-supported Python versions let us do
+quite a bit of work under the hood, but we were also able to start improving how
+some parts of the API work. Using `Enum`s where it makes sense is part of that.
+
 ### Identifier casemapping
 
-Any reasonably modern IRC server advertises its method for normalizing nicknames
-to every client that connects. Sopel 8 builds on the `bot.isupport` mechanism
-added in Sopel 7 and makes use of the advertised `CASEMAPPING` value when
-comparing and normalizing nicknames itself.
+The bot's `config.core.nick` setting is now stored and returned as a normal `str`.
+Use `bot.make_identifier()` to convert this and any other string values to an
+`Identifier` that uses the correct case mapping for the current server.
 
-To support handling this under the hood, the bot's `config.core.nick` setting is
-now stored and returned as a normal `str`. It and any other strings that you'd
-like to treat as nicknames should be passed through the `bot.make_identifier()`
-method to get the same `Identifier` type you're used to from Sopel 7, configured
-to use the IRC server's advertised casemapping method.
+This change allows Sopel 8 to better support any nick normalization that may 
+be performed by the IRC server. Any reasonably modern IRC server advertises its
+method for normalizing nicknames to every client that connects. Sopel 8 builds
+on the `bot.isupport` mechanism added in Sopel 7 and makes use of the advertised
+`CASEMAPPING` <!-- TODO: spec link appropriate here? --> value when comparing and normalizing nicknames itself.
 
 ### Time-handling changes
 
-`trigger.time` is now an "aware" `datetime` object, meaning it has a UTC offset
-associated with it. Comparison or arithmetic operations between "aware" and
+<!-- TODO: this section feels like it needs a top-level summary? I can't think
+of what to write other than "we made improvements to timezone handling" -->
+
+`trigger.time` is now an "aware" `datetime` object <!-- TODO: Python docs link -->, meaning it has a UTC offset
+<!-- TODO: is that more correct than saying "timezone"? IIRC, not all timezones are defined by UTC offsets (sigh) --> associated with it. Comparison or arithmetic operations between "aware" and
 "naive" `datetime` objects are not allowed; code that manipulates `trigger.time`
-values will need to be updated for Sopel 8.
+values will need to be updated for Sopel 8. <!-- TODO: *how*? This guide's raison d'être is to guide the reader -->
 
 The fallback format string used by `sopel.tools.time.format_time()` if no other
 source provides one changed from outputting the timezone name (`UTC`) to the UTC
-offset (`+0000`).
+offset (`+0000`). <!-- TODO: woof, this is hard to read even as a native speaker; reword -->
 
 `format_time()`'s handling of "aware" and "naive" `datetime`s was also improved,
-but those changes should be transparent to both users and plugin developers.
+but those changes should be transparent to both users and plugin developers. <!-- TODO: should this guide even mention it, then? if so, probably need to clarify why they need to know about it here vs. the changelog -->
 
-`sopel.tools.time.validate_timezone()` now also raises a `ValueError` even if
-the timezone to be validated is `None`. This was previously a special case that
-_returned_ `None`.
+`sopel.tools.time.validate_timezone(None)` now raises a `ValueError`, removing a
+special case that _returned_ `None` in Sopel 7.
 
 ### Database changes
 
@@ -230,14 +292,14 @@ parameter is unspecified.
 
 ### IRC event changes
 
-The event names `RPL_INVITELIST` and `RPL_ENDOFINVITELIST` have been updated per
-clarifications from the living-specification project at modern.ircdocs.horse.
+The event names `RPL_INVITELIST` and `RPL_ENDOFINVITELIST` have been updated <!-- TODO: we should be more clear about what changed. what were the old names? --> per
+clarifications from the living-specification project at modern.ircdocs.horse <!-- TODO: make this a link to the specific section we're talking about here -->.
 `RPL_INVEXLIST` and `RPL_ENDOFINVEXLIST` were added to the list of named events
 that Sopel knows about.
 
-Plugin code might need to be updated as a result of these changes, but keep in
-mind that [different IRC servers mean different things][invitelist-madness] when
-they send these events. If in doubt, specify a raw numeric value (e.g. `'346'`).
+Plugin code that handles these events might need to be updated as a result of
+these changes, but keep in mind that [different IRC servers mean different things][invitelist-madness]
+when they send these events. If in doubt, specify a raw numeric value (e.g. `'346'`).
 Writing truly cross-network plugins that react to these events should be
 undertaken _very_ carefully.
 
@@ -245,23 +307,27 @@ undertaken _very_ carefully.
 
 ### IRC connection status monitoring
 
-Previously a simple `bool` value, `bot.connection_registered` is now a property
-combining status information from across the bot's subsystems to answer the very
-important question, "Is the `bot` actually registered to an IRC network?" That
-is, Sopel not only has a _connection_ open, but the IRC server has _accepted_
-the bot as a _client_ and it's possible to _send commands_ to the IRC server.
+`bot.connection_registered` now indicates that a _connection_ is open, the 
+IRC server has _accepted_ the bot as a client, and commands can be sent.
+Previously, this boolean value indicated only that a connection was open. This
+attribute is now read-only and cannot be modified.
+
+<!-- TODO: did I reword that correctly? -->
 
 This is useful to plugins with code that runs without a triggering IRC event but
 still outputs to IRC, such as a `@sopel.plugin.interval()` job or acting on data
 received [via a socket][sopel-sockmsg]. `if not bot.connection_registered`, the
 output can be skipped, retried after a delay, etc.
+<!--
+TODO: this last sentence needs clarification, I *think* it's saying something like:
 
-_Hopefully no one was overwriting the old simple attribute in plugin code, but
-now they **can't** do that._
+"Plugins that want to send commands to the IRC server can write … and skip or retry
+if a full connection is not available."
+-->
 
   [sopel-sockmsg]: https://github.com/dgw/sopel-sockmsg
 
-### More consistent `trigger` objects
+### Changes to `Trigger` objects
 
 #### `STATUSMSG` handling
 
@@ -292,67 +358,91 @@ could have seen the original command.
 
 #### Only set the `sender` when it makes sense
 
+Sopel 8.0 now _only_ sets `trigger.sender` for the following events:
+  * `INVITE`
+  * `JOIN`
+  * `KICK`
+  * `MODE`
+  * `NOTICE`
+  * `PART`
+  * `PRIVMSG`
+  * `TOPIC`
+
+<!-- TODO: Do we have a linkable doc section about `COMMANDS_WITH_CONTEXT`? See 4e7ab24f -->
+
+In all other cases, the `sender` will be `None` and plugin code <!-- TODO: ALL plugin code, or a subset of plugins that care about this distinction? --> should use the `trigger.args` list to retrieve all information about the event.
+
 For general IRC events like `QUIT`, `RPL_NAMREPLY`, etc. that don't happen "in"
 a channel or other clearly defined _context_, the `trigger.sender` value that
 plugin callables saw in Sopel 7 was unpredictable at best.
-
-Sopel 8.0 now _only_ sets the `trigger.sender` if the triggering event warrants
-it. In all other cases, the `sender` will be `None` and plugin code should use
-the `trigger.args` list to retrieve all information about the event.
 
 #### To have `text`, you must first have `args`
 
 `trigger.text` will now be _empty_ (`''`) if the event carries no `args`.
 In Sopel 7, `trigger.text` contained the command name (e.g. `'QUIT'`) in these
-cases, but that was a bug. It has been fixed in Sopel 8.
+cases, but that was a bug. <!-- TODO: link the issue? --> This has been fixed in Sopel 8. 
 
 ### IRC privilege requirement changes
 
 In Sopel 8.0, the `@sopel.plugin.require_privilege()` decorator now implies
 `@sopel.plugin.require_chanmsg()`, and the decorated callable will not run if
 triggered outside of a channel. Previously, `require_privilege` restrictions
-were simply ignored, and the callable would run anyway.
+were simply ignored in a private message, and the callable would run anyway.
 
+<!-- NOTE: Hmm, I wish we called these decorators "channel privilege", but oh well. Possible naming clarification looking forward to 9.x? -->
 The `@sopel.plugin.require_bot_privilege()` decorator also now implies
 `@sopel.plugin.require_chanmsg()`, with the same associated behavior change.
 
 ### Capability negotiation rework
 
-The old `CapReq` method of asking Sopel to negotiate additional capabilities on
-behalf of your plugin has been replaced with a much more robust system based on
-the new `sopel.plugin.capability` class/decorator.
+Capability negotation now uses `sopel.plugin.capability`, replacing the old `CapReq`
+method.
 
 Plugins can now request capabilities in one of two ways:
+
+#### Simple capability requirement
+
+If a plugin only needs to declare that it depends on a capability, then
+`plugin.capability` can be used at the top-level of the plugin: 
 
 ```python
 """Sample plugin file"""
 
 from sopel import plugin
 
-# this will register a capability request
+# registers a request for the 'account-tag' capability
 CAP_ACCOUNT_TAG = plugin.capability('account-tag')
+```
 
-# this will work as well
+<!-- TODO: what happens when the capability is NAKed? Does `CAP_ACCOUNT_TAG` have a further use in this context? -->
+
+#### Fine-grained control over capability negotiation
+
+If your plugin needs to _do something in response to_ the IRC server's
+response to the capability request. See the documentation <!-- TODO: link --> for more details.
+
+<!-- TODO: Do I understand right that graceful degradation of a plugin in the absence requires this approach? -->
+
+```python
+"""Sample plugin file"""
+
+from sopel import plugin
+
 @plugin.capability('message-prefix')
 def cap_message_prefix(cap_req, bot, acknowledged):
     # do something if message-prefix is ACK or NAK
     ...
 ```
 
-The first method is easier if you just want to require a capability. The second
-is easier if your plugin needs to _do something in response to_ the IRC server's
-response to the capability request. See the documentation for more details.
-
 ### The bot's hostmask
 
-In Sopel 8, accessing `bot.hostmask` when the bot lacks sufficient data to
-determine its hostmask will return `None`. This replaces the previous behavior,
-which was to raise a `KeyError`.
+In Sopel 8, accessing `bot.hostmask` now returns `None` when the bot lacks sufficient data to
+determine its hostmask. This replaces the previous behavior, which was to raise a `KeyError`.
 
 ### Testing tool changes
 
-* Convenience methods of the mock IRC server available through Sopel's `pytest`
-  plugin implement keyword-only arguments now. This applies to:
+* The following testing convenience methods of the mock IRC server now accept the `blocking` parameter
+_only_ by keyword argument: <!-- TODO: do we intend to introduce future parameters that way? am I missing something or is it really just this one parameter that is affected? -->
   * `MockIRCServer.channel_joined()`
   * `MockIRCServer.mode_set()`
   * `MockIRCServer.join()`
@@ -361,18 +451,17 @@ which was to raise a `KeyError`.
 
 ### Moved API features
 
-We wanted to organize things better in Sopel 8.0, so some of the API features
-have moved. The old locations will still work until Sopel 9.0, but you'll be way
-ahead of the game if you update your plugins now!
-
-* `Identifier` type moved from `sopel.tools` to `sopel.tools.identifiers`
-* `SopelMemory` and `SopelMemoryWithDefault` types moved from `sopel.tools` to
+* `Identifier` type has been moved from `sopel.tools` to `sopel.tools.identifiers`
+* `SopelMemory` and `SopelMemoryWithDefault` types have been moved from `sopel.tools` to
   `sopel.tools.memories`
-* `sopel.tools.check_pid()` moved to `sopel.cli.utils`
+* `sopel.tools.check_pid()` have been moved to `sopel.cli.utils`
 
-### Removed API features
+The old locations will still work until Sopel 9 (when they will be removed),
+but we encourage plugin authors to start using the new locations now.
 
-Previously deprecated parts of Sopel's API have been removed, including:
+### Removal of previously-deprecated API
+
+The following API features have been removed in Sopel 8:
 
 * `bot.memory['url_callbacks']` is no longer created or populated by the bot
   * Tracking this information moved to an internal property, in preparation for
@@ -409,12 +498,17 @@ Previously deprecated parts of Sopel's API have been removed, including:
   * `stdout()` (use Sopel's logging facility, or `print()` if you must)
 * `sopel.web` (moved to `sopel.tools.web` in Sopel 7.0)
 
-### Deprecated API features
+### New API deprecations
 
-More pieces of Sopel's pre-existing API have been deprecated in version 8.0 as
-we continue to reorganize and rework various parts of the overall project:
+The following API features have been deprecated in 8.0 as we continue to
+reorganize and rework the overall project.
 
-* `bot.search_url_callbacks()` (use `bot.rules.check_url_callbacks(bot, url)`)
+#### Scheduled for removal in Sopel 8.1
+
 * `sopel.tools.OutputRedirect`
 * `sopel.tools.stderr()` (we can't stress enough: plugins should use a logger,
   not stdout/stderr output)
+
+#### Scheduled for removal in Sopel 9.0
+
+* `bot.search_url_callbacks()` (use `bot.rules.check_url_callbacks(bot, url)`)
